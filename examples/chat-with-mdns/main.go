@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/multiformats/go-multiaddr"
@@ -22,13 +23,13 @@ func handleStream(stream network.Stream) {
 	// Create a buffer stream for non-blocking read and write.
 	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
 
-	go readData(rw)
+	go readData(stream.Conn().RemotePeer(), rw)
 	go writeData(rw)
 
 	// 'stream' will stay open until you close it (or the other side closes it).
 }
 
-func readData(rw *bufio.ReadWriter) {
+func readData(peer peer.ID, rw *bufio.ReadWriter) {
 	for {
 		str, err := rw.ReadString('\n')
 		if err != nil {
@@ -42,7 +43,7 @@ func readData(rw *bufio.ReadWriter) {
 		if str != "\n" {
 			// Green console colour: 	\x1b[32m
 			// Reset console colour: 	\x1b[0m
-			fmt.Printf("\x1b[32m%s\x1b[0m> ", str)
+			fmt.Printf("%s: \x1b[32m%s\x1b[0m> ", peer, str)
 		}
 
 	}
@@ -137,7 +138,7 @@ func main() {
 			rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
 
 			go writeData(rw)
-			go readData(rw)
+			go readData(peer.ID, rw)
 			fmt.Println("Connected to:", peer)
 		}
 	}

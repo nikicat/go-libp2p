@@ -13,6 +13,7 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 )
@@ -29,7 +30,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	go discoverPeers(ctx, h)
+	go discoverMDNS(ctx, h)
 
 	ps, err := pubsub.NewGossipSub(ctx, h)
 	if err != nil {
@@ -105,6 +106,19 @@ func discoverPeers(ctx context.Context, h host.Host) {
 	fmt.Println("Peer discovery complete")
 }
 
+func discoverMDNS(ctx context.Context, h host.Host) {
+	peerChan := initMDNS(h, *topicNameFlag)
+	for { // allows multiple peers to join
+		peer := <-peerChan // will block until we discover a peer
+		fmt.Println("Found peer:", peer, ", connecting")
+
+		if err := h.Connect(ctx, peer); err != nil {
+			fmt.Println("Connection failed:", err)
+			continue
+		}
+	}
+}
+
 func streamConsoleTo(ctx context.Context, topic *pubsub.Topic) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -126,4 +140,27 @@ func printMessagesFrom(ctx context.Context, sub *pubsub.Subscription) {
 		}
 		fmt.Println(m.ReceivedFrom, ": ", string(m.Message.Data))
 	}
+}
+
+type discoveryNotifee struct {
+	PeerChan chan peer.AddrInfo
+}
+
+// interface to be called when new  peer is found
+func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
+	n.PeerChan <- pi
+}
+
+// Initialize the MDNS service
+func initMDNS(peerhost host.Host, rendezvous string) chan peer.AddrInfo {
+	// register with service so that we get notified about peer discovery
+	n := &discoveryNotifee{}
+	n.PeerChan = make(chan peer.AddrInfo)
+
+	// An hour might be a long long period in practical applications. But this is fine for us
+	ser := mdns.NewMdnsService(peerhost, rendezvous, n)
+	if err := ser.Start(); err != nil {
+		panic(err)
+	}
+	return n.PeerChan
 }
